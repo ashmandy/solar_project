@@ -1,0 +1,620 @@
+---
+title: "Solar Energy Project"
+author: "Mandy Langlois"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(tmap)
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(readxl)
+```
+
+```{r}
+installation_data = read_excel(here::here("residential.xlsx"))
+head(installation_data)
+```
+
+```{r}
+electricity_prices = read_csv(here::here("average retail price of electricity.csv"))
+head(electricity_prices)
+```
+
+```{r}
+consumption_data = read.csv(here::here("electricity consumption.csv"))
+head(consumption_data)
+```
+
+```{r}
+ph_parcels = st_read("City_Parcels/City_Parcels.shp")
+```
+
+# **Data Cleaning** all datasets that require cleaning
+
+instatllation_data cleaning
+
+```{r}
+colnames(installation_data) = c("ID#","Zip_Code_of_Installation","Technology", "System_Size_capacity_kW","System_Size_Energy_Generation_kWh", "Incentive_program_Name", "Application_Date","Reservation_Date","Installation_Date","Total_Cost_of_System","Incentive_Offered")
+
+```
+
+Converting Trillion Btu to kWh for consumption data set
+
+```{r}
+consumption_data$consumption_kWh = consumption_data$Value * 293071070
+```
+
+```{r}
+sum(is.na(installation_data))
+```
+
+my installation data set is missing 440 missing value according to the result of sum(). i will attempt to fix it below.
+
+```{r}
+installation_data_cleaned =installation_data[!is.na(installation_data$Total_Cost_of_System) & !is.na(installation_data$Incentive_program_Name), ]
+
+
+head(installation_data_cleaned)
+
+sum(is.na(installation_data_cleaned$Total_Cost_of_System))
+sum(is.na(installation_data_cleaned$Incentive_program_Name))
+```
+
+```{r}
+colnames(installation_data_cleaned)
+```
+
+```{r}
+installation_data_cleaned = installation_data_cleaned[, !is.na(names(installation_data_cleaned))]
+
+```
+
+```{r}
+installation_data_cleaned$Total_Cost_of_System = as.numeric(gsub("[^[:digit:].]", "", installation_data_cleaned$Total_Cost_of_System))
+installation_data_cleaned$Incentive_Offered = as.numeric(gsub("[^[:digit:].]", "", installation_data_cleaned$Incentive_Offered))
+```
+
+```{r}
+installation_data_cleaned = installation_data_cleaned |>
+  mutate(
+    adjusted_cost = Total_Cost_of_System - Incentive_Offered, 
+    ROI = (System_Size_Energy_Generation_kWh * 0.16 * 10) / adjusted_cost * 100
+  )
+```
+
+```{r}
+str(installation_data_cleaned)
+
+```
+
+```{r}
+installation_data_cleaned$System_Size_Energy_Generation_kWh = as.numeric(
+  gsub("[^[:digit:].]", "", installation_data_cleaned$System_Size_Energy_Generation_kWh)
+)
+```
+
+```{r}
+installation_data_cleaned = installation_data_cleaned |>
+  mutate(
+    adjusted_cost = Total_Cost_of_System - Incentive_Offered,
+    ROI = (System_Size_Energy_Generation_kWh * 0.16 * 10) / adjusted_cost * 100
+  )
+```
+
+```{r}
+head(installation_data_cleaned)
+```
+
+```{r}
+colnames(installation_data_cleaned)
+```
+
+An error code from the code directly above indicated to the some of the columns being character types instead of numeric, i will attempt to change that below. first i want to verify the columns types.
+
+```{r}
+str(installation_data_cleaned)
+```
+
+```{r}
+installation_data_cleaned =  installation_data_cleaned |>
+  mutate(
+    Total_Cost_of_System = as.numeric(Total_Cost_of_System),
+    Incentive_Offered = as.numeric(Incentive_Offered)
+  )
+```
+
+now i will identify the non-numeric values
+
+```{r}
+unique(installation_data_cleaned$Total_Cost_of_System)
+unique(installation_data_cleaned$Incentive_Offered)
+```
+
+convert characters to numeric, using some of hat we learned from our text analysis lecture.
+
+```{r}
+installation_data_cleaned$Total_Cost_of_System = as.numeric(gsub("[\\$,]", "",installation_data_cleaned$Total_Cost_of_System))
+installation_data_cleaned$Incentive_Offered=as.numeric(gsub("[\\$,]", "", installation_data_cleaned$Incentive_Offered))
+```
+
+recieved a warning: NAs introduced by coercion message, meaning that during my conversion attempt R might have attempted to convert non numeric values into numeric data but some of the values failed to convert and were replaced by NA. look at my data set in excel, i found that the columns contain \$ which may be causing this issue. i will correct this below.
+
+```{r}
+installation_data_cleaned$Total_Cost_of_System = as.numeric(gsub("\\$", "", installation_data_cleaned$Total_Cost_of_System))
+installation_data_cleaned$Incentive_Offered = as.numeric(gsub("\\$", "", installation_data_cleaned$Incentive_Offered))
+```
+
+```{r}
+str(installation_data_cleaned)
+```
+
+```{r}
+na_rows = installation_data_cleaned[is.na(installation_data_cleaned$Total_Cost_of_System), ]
+head(na_rows)
+
+sum(is.na(installation_data_cleaned$Total_Cost_of_System))
+```
+
+```{r}
+head(installation_data_cleaned)
+```
+
+```{r}
+unique(installation_data$Total_Cost_of_System)
+```
+
+```{r}
+head(installation_data$Total_Cost_of_System)
+```
+
+Attempting to replace missing value with median value
+
+```{r}
+median_cost = median(installation_data_cleaned$Total_Cost_of_System, na.rm = T)
+installation_data_cleaned$Total_Cost_of_System[is.na(installation_data_cleaned$Total_Cost_of_System)] = median_cost
+```
+
+More data cleaning
+
+```{r}
+installation_data_cleaned$System_Size_Energy_Generation_kWh <- gsub("[^[:digit:].]", "", installation_data_cleaned$System_Size_Energy_Generation_kWh)
+
+installation_data_cleaned$System_Size_capacity_kW = gsub("[^[:digit:].]", "", installation_data_cleaned$System_Size_capacity_kW)
+
+installation_data_cleaned$Zip_Code_of_Installation = gsub("[^[:digit:]]", "", installation_data_cleaned$Zip_Code_of_Installation)
+```
+
+```{r}
+installation_data_cleaned$System_Size_Energy_Generation_kWh = as.numeric(installation_data_cleaned$System_Size_Energy_Generation_kWh)
+
+installation_data_cleaned$System_Size_capacity_kW = as.numeric(installation_data_cleaned$System_Size_capacity_kW)
+
+installation_data_cleaned$Zip_Code_of_Installation = as.numeric(installation_data_cleaned$Zip_Code_of_Installation)
+
+```
+
+Filtering out NA values from the columns above.
+
+```{r}
+installation_data_cleaned = installation_data_cleaned |>
+  filter(
+    !is.na(System_Size_Energy_Generation_kWh),
+    !is.na(System_Size_capacity_kW),
+    !is.na(Zip_Code_of_Installation)
+  )
+```
+
+Calculating ROI
+
+```{r}
+installation_data_cleaned = installation_data_cleaned |>
+  mutate(
+    adjusted_cost = Total_Cost_of_System - Incentive_Offered,
+    ROI = (System_Size_Energy_Generation_kWh * 0.16 * 10) / adjusted_cost * 100
+  )
+```
+
+Residential data analysis by ZIP Codes. Total savings over time.
+
+```{r}
+zip_summary = installation_data_cleaned |>
+  group_by(Zip_Code_of_Installation) |>
+  summarize(
+    Total_Savings = sum(System_Size_Energy_Generation_kWh * 0.16, na.rm = TRUE),
+    Average_ROI = mean(ROI, na.rm = TRUE),
+    Total_Installations = n()
+  )
+```
+
+```{r}
+head(zip_summary)
+```
+
+creating a bar chart of savings by ZIP code. result was not as intended, bar chart had the correct labeling but the zip code on the x axis wasn't displayed as expected, the ZIP code appeared as continuous numerical value and not categorical data. I will use as.factor to treat ZIP code as a categorical data then try to create another graph.
+
+```{r}
+zip_summary$Zip_Code_of_Installation = as.factor(zip_summary$Zip_Code_of_Installation)
+```
+
+```{r}
+ggplot(zip_summary, aes(x = Zip_Code_of_Installation, y = Total_Savings)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  theme_minimal() +
+  labs(
+    title = "Total Savings by ZIP Code",
+    x = "ZIP Code",
+    y = "Savings ($)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+summary(electricity_prices)
+```
+
+```{r}
+colnames(consumption_data)
+```
+
+```{r}
+summary(consumption_data$Consumption_Trillion_Btu)
+
+```
+
+```{r}
+nrow(consumption_data)
+sum(is.na(consumption_data$Consumption_Trillion_Btu))
+```
+
+```{r}
+head(consumption_data)
+```
+
+```{r}
+colnames(consumption_data)
+```
+
+```{r}
+summary(consumption_data$consumption_kWh)
+```
+
+```{r}
+consumption_data = consumption_data |>
+    filter(!is.na(consumption_kWh))
+```
+
+```{r}
+consumption_data = consumption_data |>
+    mutate(Savings = consumption_kWh * 0.16)
+```
+
+conversion
+
+```{r}
+consumption_data = consumption_data |>
+    mutate(Consumption_Trillion_Btu = consumption_kWh / 293071070.17)
+```
+
+calculate energy savings
+
+```{r}
+colnames(consumption_data)
+```
+
+```{r}
+colnames(consumption_data)[which(colnames(consumption_data) == "")] = "Unnamed_Column"
+colnames(consumption_data)[is.na(colnames(consumption_data))] = "Unnamed_Column"
+
+```
+
+```{r}
+consumption_data = consumption_data[, !is.na(colnames(consumption_data)) & colnames(consumption_data) != ""]
+```
+
+```{r}
+colnames(consumption_data)
+```
+
+```{r}
+consumption_data = consumption_data |>
+    mutate(Savings = consumption_kWh * 0.16)
+```
+
+calculating ROI
+
+```{r}
+installation_data = installation_data |>
+  mutate(
+    Net_Savings_10yrs = Savings * 10,
+    ROI = (Net_Savings_10yrs / Total_Cost_of_System) * 100
+  )
+```
+
+```{r}
+colnames(installation_data)
+```
+
+```{r}
+installation_data= installation_data[, !is.na(colnames(installation_data)) & colnames(installation_data) != ""]
+```
+
+```{r}
+summary(installation_data$Savings)
+summary(installation_data$Total_Cost_of_System)
+
+```
+
+```{r}
+str(installation_data$System_Size_Energy_Generation_kWh)
+```
+
+```{r}
+unique(installation_data$System_Size_Energy_Generation_kWh)
+```
+
+```{r}
+installation_data =installation_data |>
+  mutate(System_Size_Energy_Generation_kWh = as.numeric(gsub("[^0-9.]", "", System_Size_Energy_Generation_kWh)))
+```
+
+```{r}
+sum(is.na(installation_data$System_Size_Energy_Generation_kWh))
+```
+
+```{r}
+installation_data = installation_data |>
+  mutate(System_Size_Energy_Generation_kWh = ifelse(
+    is.na(System_Size_Energy_Generation_kWh),
+    mean(System_Size_Energy_Generation_kWh, na.rm = T),
+    System_Size_Energy_Generation_kWh
+  ))
+```
+
+```{r}
+installation_data = installation_data |>
+  mutate(Savings = System_Size_Energy_Generation_kWh * 0.16)
+```
+
+calculating for ROI again previous one failed
+
+```{r}
+str(installation_data$Savings)
+str(installation_data$Total_Cost_of_System)
+```
+
+```{r}
+unique(installation_data$Total_Cost_of_System)
+
+```
+
+```{r}
+installation_data = installation_data |>
+  filter(!grepl("[[:alpha:]]", Total_Cost_of_System)) 
+```
+
+```{r}
+installation_data = installation_data |>
+  mutate(Total_Cost_of_System = as.numeric(gsub("[^[:digit:].]", "", Total_Cost_of_System)))
+```
+
+```{r}
+sum(is.na(installation_data$Total_Cost_of_System))
+```
+
+```{r}
+installation_data = installation_data |>
+  mutate(Total_Cost_of_System = ifelse(is.na(Total_Cost_of_System),
+                                       mean(Total_Cost_of_System, na.rm = T),
+                                       Total_Cost_of_System))
+```
+
+Calculating ROI for the past 10 years
+
+```{r}
+installation_data =installation_data %>%
+  mutate(
+    Net_Savings_10yrs = Savings * 10,
+    ROI = (Net_Savings_10yrs / Total_Cost_of_System) * 100
+  )
+```
+
+Summarize by ZIP
+
+```{r}
+zip_summary = installation_data %>%
+  group_by(Zip_Code_of_Installation) %>%
+  summarize(
+    Total_Savings = sum(Savings, na.rm = T),
+    Average_ROI = mean(ROI, na.rm = T),
+    Total_Installations = n()
+  )
+```
+
+environmental impact Assessment CO2 reduction. note \|\>, in that exact form wouldn't work for some reason
+
+```{r}
+installation_data = installation_data %>%
+  mutate(CO2_Reduction_kg = System_Size_Energy_Generation_kWh * 0.453)
+```
+
+Emission by ZIP code Assume a grid emission factor for Arizona is 0.453Kg CO2/kWh
+
+```{r}
+
+colnames(zip_summary)
+```
+
+calculate co2 reduction Assuming system size energy generation kwh is the energy saved, and the grid emission factor is 0.453 kg CO₂/kWh
+
+```{r}
+colnames(installation_data)
+```
+
+```{r}
+zip_summary = installation_data %>%
+  group_by(Zip_Code_of_Installation) %>%
+  summarize(
+    Total_Energy_Generated_kWh = sum(System_Size_Energy_Generation_kWh, na.rm = T),
+    Average_ROI = mean(ROI, na.rm = T),
+    Total_Installations = n()
+  )
+```
+
+calculate co2 reduction
+
+```{r}
+zip_summary = zip_summary %>%
+  mutate(CO2_Reduction_kg = Total_Energy_Generated_kWh * 0.453)
+```
+
+```{r}
+head(zip_summary)
+
+```
+
+# **calculation visualization**
+
+comparing ROI across ZIP codes
+
+```{r}
+ggplot(zip_summary, aes(x = reorder(Zip_Code_of_Installation, -Average_ROI), y = Average_ROI)) +
+    geom_bar(stat = "identity", fill = "blue") +
+    labs(title = "Average ROI by ZIP Code", x = "ZIP Code", y = "ROI (%)") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+carbon reduction histogram
+
+```{r}
+ggplot(installation_data, aes(x = CO2_Reduction_kg)) +
+    geom_histogram(binwidth = 1000, fill = "darkgreen", color = "white") +
+    labs(title = "Carbon Emission Reductions", x = "CO2 Reduction (kg)", y = "Frequency")
+```
+
+saving vs ROI. this was done at the start but i just learned about geom_smooth and wanted wanted to compare the first visualization and this one.
+
+```{r}
+ggplot(installation_data, aes(x = Savings, y = ROI)) +
+  geom_smooth(method = "loess", color = "blue", fill = "lightblue", alpha = 0.5) +
+  labs(title = "Savings vs ROI Trend",
+       x = "Savings (USD)",
+       y = "ROI (%)") +
+  theme_minimal()
+```
+
+# Data is for ZIP summary 
+
+These are codes that i wrote to fix issues i was having with my zip code file. i also planned to use these to help me create a map after QGIS failed, but i was also having issues in Rstudio; so instead of visual maps i created the visualizations above.
+
+```{r}
+merged_data = merge(ph_parcels, zip_summary, by.x = "ZIP_CODE", by.y = "Zip_Code_of_Installation")
+```
+
+```{r}
+head(merged_data)
+```
+
+```{r}
+merged_data = ph_parcels |>
+  left_join(zip_summary, by = c("ZIP_CODE" = "Zip_Code_of_Installation"))
+```
+
+```{r}
+str(merged_data)
+```
+
+```{r}
+unique(ph_parcels$ZIP_CODE)
+
+```
+
+```{r}
+ph_parcels$ZIP_CODE = trimws(ph_parcels$ZIP_CODE)
+```
+
+```{r}
+ph_parcels = ph_parcels |>
+  filter(!grepl("[^[:digit:]]", ZIP_CODE))
+```
+
+```{r}
+ph_parcels$ZIP_CODE = as.numeric(ph_parcels$ZIP_CODE)
+```
+
+```{r}
+str(ph_parcels$ZIP_CODE)
+
+```
+
+```{r}
+
+sum(is.na(ph_parcels$ZIP_CODE))
+```
+
+```{r}
+sum(is.na(ph_parcels$ZIP_CODE)) / nrow(ph_parcels) * 100
+```
+
+```{r}
+api_key = Sys.getenv("4d191e8b4ea3dab05b29968471fc1f7a358b0128")
+```
+
+These next set of codes required external alot help from YouTube videos, stack overflow, airport hw, and Google . 84% of my data was missing so i used the Census bureau to recover what i was missing. I used Sys.getenv("CENSUS_API_KEY") to recover the key from the airport home work and verified it with print(api_key). I thought with 84% of data missing, my calculations would no.t be accurate
+
+```{r}
+get_zip_code = function(street, city, state, api_key) {
+  
+  base_url = "https://geocoding.geo.census.gov/geocoder/locations/address"
+  query = list(
+    street = street,
+    city = city,
+    state = state,
+    benchmark = "Public_AR_Current",
+    format = "json",
+    key = "4d191e8b4ea3dab05b29968471fc1f7a358b0128"
+  )
+  
+ 
+  response = httr::GET(url = base_url, query = query)
+  
+  
+  data = httr::content(response, as = "parsed")
+  
+  
+  if (!is.null(data$result$addressMatches) && length(data$result$addressMatches) > 0) {
+    return(data$result$addressMatches[[1]]$addressComponents$zip)
+  } else {
+    return(NA) 
+  }
+}
+
+```
+
+Filter rows with missing ZIP codes
+
+```{r}
+missing_zip = ph_parcels |>
+  filter(is.na(ZIP_CODE))
+
+```
+
+Geometry coding function
+
+```{r}
+ph_parcels$ZIP_CODE[is.na(ph_parcels$ZIP_CODE)] =  mapply(
+  get_zip_code,
+  street = ph_parcels$ADDRESS[is.na(ph_parcels$ZIP_CODE)],
+  city = ph_parcels$CITY[is.na(ph_parcels$ZIP_CODE)],
+  state = ph_parcels$STATE[is.na(ph_parcels$ZIP_CODE)],
+  MoreArgs = list(api_key = api_key)
+)
+```
+
+```{r}
+sum(is.na(ph_parcels$ZIP_CODE))
+head(ph_parcels)
+```
